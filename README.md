@@ -1,2 +1,2 @@
 # multimodal-interaction-backend-service
-Repositorio Back-end para el moduló Interacción Multimodal
+Repositorio Back-end para el modulo Interacción Multimodal
