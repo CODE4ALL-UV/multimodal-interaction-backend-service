@@ -1,2 +1,0 @@
-# process text use case
-# Esta clase implementa el caso de uso para procesar texto, que incluye la transformación del texto en una representación interna que puede ser utilizada por otros componentes del sistema multimodal.

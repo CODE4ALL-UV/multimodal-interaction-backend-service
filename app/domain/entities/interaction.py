@@ -1,2 +1,0 @@
-# INTERACTION ENTITY
-# Esta clase representa una interacción entre un usuario y el sistema multimodal. Incluye información sobre el tipo de interacción, los datos proporcionados por el usuario, y la respuesta generada por el sistema.

@@ -1,1 +1,0 @@
-# estete es un dto que se utiliza para crear un nuevo usuario, se utiliza en el endpoint de registro de usuario
