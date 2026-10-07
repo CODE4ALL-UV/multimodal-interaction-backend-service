@@ -4,3 +4,7 @@ python-multipart
 mediapipe
 opencv-python-headless
 numpy
+pytest
+pytest-cov
+httpx2
+python-dotenv
