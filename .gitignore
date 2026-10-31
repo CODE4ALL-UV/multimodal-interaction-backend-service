@@ -12,5 +12,5 @@ __pycache__/
 venv/
 .pytest_cache/
 
-# Modelo de MediaPipe: se descarga solo la primera vez (7,8 MB)
+# Modelos de MediaPipe: se descargan solos la primera vez (7,8 MB y 3,8 MB)
 /models/

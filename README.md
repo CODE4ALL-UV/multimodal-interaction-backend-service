@@ -1,9 +1,10 @@
 # multimodal-interaction-backend-service · Interacción multimodal
 
 Este es el microservicio de **interacción multimodal** de Code4All: la parte
-del backend que deja usar la app con algo distinto del teclado y el ratón. Hoy
-hace una sola cosa, que es **ver la mano del estudiante con la cámara** para
-practicar el alfabeto manual (dactilología).
+del backend que deja usar la app con algo distinto del teclado y el ratón. Hace
+dos cosas con la cámara: **ver la mano del estudiante** para practicar el
+alfabeto manual (dactilología) y **leer sus labios**. La segunda está explicada
+en [Lectura de labios](#lectura-de-labios).
 
 La app toma una foto con la cámara y la manda aquí. El servicio busca la mano
 con [MediaPipe Hand Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker)
@@ -128,6 +129,142 @@ Para que se entienda el recorrido completo: la clasificación vive en el
 - `lib/data/services/sign_recognition_service.dart` es el que llama a estas
   dos rutas, con un tiempo de espera de 8 segundos.
 
+## Lectura de labios
+
+Para estudiantes con discapacidad auditiva, y para cualquiera que quiera
+practicar. La cámara dibuja los labios encima de la imagen, muestra cómo se
+mueven y lee palabras sueltas de una lista. La app lo abre desde el menú de
+perfil, solo en cuentas de estudiante.
+
+Al contrario que en las señas, **aquí sí decide el servidor**: la forma de la
+boca y la palabra se calculan en Python, en
+`multimodal_service/domain/lip_reading.py`, y la app solo enseña el resultado.
+
+### Qué se puede leer y qué no
+
+La mayoría de las consonantes se hacen dentro de la boca: T, D, N, L, S, R, C, G
+y J se ven casi igual. Por eso cada foto se reduce a una de siete formas: `M`
+(labios juntos: M, B, P, V), `N` (entreabierta, sin forma propia) y las cinco
+vocales. Las palabras se buscan **en una lista cerrada** (`VOCABULARY`), elegidas
+porque se ven distintas. Una prueba impide añadir dos que se vean igual: «ayuda»,
+«agua» y «pausa» no pueden estar juntas.
+
+Es una ayuda para practicar, no un dictado ni una forma de evaluar a nadie.
+
+### Por qué MediaPipe y no un modelo de lectura de labios
+
+| Opción | Español | Tamaño | Licencia |
+|---|---|---|---|
+| **[MediaPipe Face Landmarker](https://developers.google.com/edge/mediapipe/solutions/vision/face_landmarker/python)** (la elegida) | No aplica: da los puntos de la cara y aquí se calcula el resto | Modelo de 3,8 MB. La librería ya estaba instalada para las señas | Apache 2.0 |
+| [Visual Speech Recognition for Multiple Languages](https://github.com/mpc001/Visual_Speech_Recognition_for_Multiple_Languages) | Sí, con 44,5 % de palabras erradas | 186 MB más 180 MB del modelo de lenguaje, más PyTorch | Solo uso no comercial, para comparar o medir |
+| [Auto-AVSR](https://github.com/mpc001/auto_avsr) | El sitio solo publica resultados con LRS3 | Modelos de 250 M de parámetros, más PyTorch | Código Apache 2.0; los modelos pueden tener otros términos |
+
+Los modelos de lectura de labios leen frases libres, pero no caben en el plan
+gratuito de Render, que es donde corre el gateway (512 MB de memoria), y con el
+único modelo en español fallaría casi una de cada dos palabras. Si algún día hace
+falta dictado libre, habría que desplegarlo aparte, con una máquina más grande y
+revisando su licencia.
+
+### Las rutas
+
+#### `GET /api/lips/status`
+
+Igual que el de las señas, más las palabras que sabe leer. Siempre contesta 200:
+
+```json
+{ "available": true, "model_ready": true, "reason": null, "words": ["hola", "..."] }
+```
+
+#### `POST /api/lips/landmarks`
+
+Recibe una foto (`multipart/form-data`, campo `file`; JPEG, PNG o WebP, hasta
+**1 MB**) y opcionalmente `neutral_width`. Es lo que la app dibuja en vivo.
+
+```json
+{
+  "face": {
+    "lips": { "outer": [{ "x": 0.45, "y": 0.61 }], "inner": [{ "x": 0.46, "y": 0.61 }] },
+    "opening": 0.26,
+    "width": 0.6,
+    "rounding": 0.02,
+    "shape": "A",
+    "scores": { "M": 0.0, "N": 0.0, "A": 0.99, "E": 0.01, "I": 0.0, "O": 0.0, "U": 0.0 }
+  }
+}
+```
+
+- `outer` e `inner` traen siempre 20 puntos cada uno, en orden, para dibujarlos
+  como una línea. Van de 0 a 1 respecto a la foto.
+- `opening` y `width` van en distancias entre ojos: no cambian al acercarse.
+- `rounding` va de 0 a 1 y sale de las blendshapes de MediaPipe.
+- Si no se ve ninguna cara, `face` llega en `null`. **No es un error.**
+
+#### `POST /api/lips/read`
+
+Recibe las fotos de una palabra, en orden, repitiendo el campo `files` (hasta
+**60 fotos y 16 MB**), y opcionalmente `neutral_width`.
+
+```json
+{
+  "word": "hola",
+  "alternatives": ["no"],
+  "shapes": ["O", "A"],
+  "frames": 24,
+  "frames_with_face": 24,
+  "reason": null
+}
+```
+
+- `word` solo viene si la lectura es clara. Si no, llega en `null` y
+  `alternatives` trae las candidatas, para que elija la persona.
+- `reason` dice por qué no se intentó: `too_short`, `no_face` o `no_movement`.
+
+| Código | Cuándo |
+|---|---|
+| 400 | Una foto llegó vacía, o en `/landmarks` no se pudo leer como imagen. En `/read`, una foto ilegible solo cuenta como una sin cara. |
+| 413 | Una foto pasa de 1 MB, o el clip tiene demasiadas fotos o pesa demasiado. |
+| 415 | Un archivo no es JPEG, PNG ni WebP. |
+| 422 | No llegó el archivo, o `neutral_width` no está entre 0,2 y 1,2. |
+| 503 | El servidor no puede detectar caras. El motivo va en el mensaje. |
+
+### Cómo funciona por dentro
+
+1. **Dos ritmos.** En vivo, la app manda una foto cuando el servidor termina con
+   la anterior. Para leer una palabra toma unas 10 fotos por segundo, las guarda
+   y las manda juntas al terminar: una vocal dura unas dos décimas de segundo, y
+   el servidor gratuito no da abasto para verlas una a una.
+2. **Se ajusta a cada cara.** La app mide el ancho de la boca relajada y lo manda
+   en `neutral_width`. Una boca se ve redonda o estirada comparada con la suya.
+3. **Cada foto da una puntuación por forma**, según la distancia a la forma típica
+   (`_PROTOTYPES`). Salen de medidas publicadas de labios en vocales, no de vídeos
+   de estudiantes: **si la lectura falla con personas reales, es lo primero que
+   hay que ajustar**.
+4. **La palabra se busca alineando.** Con programación dinámica se reparten las
+   fotos entre las formas de cada palabra, en orden, para que no importe si se
+   habla deprisa o despacio. Cuentan menos las fotos con la boca en pleno
+   movimiento: al cerrar la boca desde una A se pasa por algo con forma de E, y eso
+   no es decir una E.
+5. **Solo se escribe si está clara**: la mejor palabra tiene que ganar a la segunda
+   por `_MIN_MARGIN`. Si no, se ofrecen las candidatas.
+6. **El análisis corre en un hilo aparte**, porque todos los servicios comparten
+   proceso y, si no, el resto de rutas se quedaría esperando.
+
+**Privacidad:** igual que en las señas, las fotos se procesan en memoria y se
+descartan. El límite de 1 MB está para cumplirlo: por encima de eso el servidor
+web las guardaría en un archivo temporal mientras llegan.
+
+### Cuánto acierta
+
+| Prueba | Resultado |
+|---|---|
+| Modelo real, foto real con la boca abierta a mano | Mide bien la apertura y pasa de `M` a `N`, `E` y `A`. Un clip de A larga deja «mal» entre las candidatas. |
+| 29 palabras con hablantes simulados, a 10 fotos por segundo | Escribe bien el 63 %, escribe mal el 3 % y duda en el 34 %. La correcta queda a un toque el 99 % de las veces. |
+| La misma simulación, a 6 fotos por segundo | Escribe bien el 49 %, escribe mal el 10 %. |
+| **Personas reales hablando** | **Sin medir.** Es lo que falta. La simulación es optimista: usa las mismas formas que el lector. |
+
+Mide la apertura y el ancho de los labios, así que `F` y los dientes no se
+distinguen: `F` cuenta como una consonante oculta más.
+
 ## Cómo lo monta el gateway
 
 Todos los servicios de Code4All siguen el mismo contrato:
@@ -143,12 +280,18 @@ submódulo en `services/` y llama a esa función al arrancar.
 multimodal_service/
 ├── routes.py                    register(app): lo único que llama el gateway
 ├── main.py                      arranque independiente
+├── domain/
+│   └── lip_reading.py           medidas de la boca, formas y palabras
 └── presentation/api/
-    └── sign_routes.py           las dos rutas, el modelo y el detector
-models/                          (no está en git) el modelo descargado
+    ├── sign_routes.py           las rutas de la mano, su modelo y su detector
+    └── lip_routes.py            las rutas de los labios, su modelo y su detector
+models/                          (no está en git) los modelos descargados
 tests/
 ├── conftest.py
-└── test_sign_routes.py
+├── test_sign_routes.py
+├── test_hand_detection.py
+├── test_lip_reading.py
+└── test_lip_routes.py
 ```
 
 ## Requisitos
@@ -159,7 +302,8 @@ tests/
 - **Sistema:** MediaPipe necesita `libgl1`, `libegl1`, `libgles2` y
   `libglib2.0-0`. Sin libEGL el import funciona, pero falla al **crear** el
   detector. El `Dockerfile` del gateway ya las instala.
-- **Internet** en la primera foto, para descargar el modelo.
+- **Internet** en la primera foto de cada función, para descargar su modelo.
+  La lectura de labios no añade ninguna librería: usa las mismas que las señas.
 - **Variables de entorno:** ninguna.
 
 ## Correrlo
@@ -185,6 +329,10 @@ pytest tests
 `tests/test_sign_routes.py` no toca la red ni necesita el modelo. Comprueba que
 `/status` responde con sus tres campos, que un archivo que no es imagen recibe
 415 y que una imagen vacía recibe 400.
+
+Las de labios tampoco tocan la red: `test_lip_routes.py` sustituye MediaPipe por
+un doble y `test_lip_reading.py` prueba la geometría y el lector con bocas
+simuladas. Eso comprueba que el método funciona, no cuánto acierta con personas.
 
 En GitHub, cada push o pull request a `main` corre las pruebas con cobertura y
 la sube a Codacy (`.github/workflows/codacy-coverage.yml`).
