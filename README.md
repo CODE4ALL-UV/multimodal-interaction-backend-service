@@ -183,6 +183,7 @@ Recibe una foto (`multipart/form-data`, campo `file`; JPEG, PNG o WebP, hasta
 ```json
 {
   "face": {
+    "image": { "width": 720, "height": 480 },
     "lips": { "outer": [{ "x": 0.45, "y": 0.61 }], "inner": [{ "x": 0.46, "y": 0.61 }] },
     "opening": 0.26,
     "width": 0.6,
@@ -195,6 +196,9 @@ Recibe una foto (`multipart/form-data`, campo `file`; JPEG, PNG o WebP, hasta
 
 - `outer` e `inner` traen siempre 20 puntos cada uno, en orden, para dibujarlos
   como una línea. Van de 0 a 1 respecto a la foto.
+- `image` es el tamaño de esa foto. Hace falta para dibujar los puntos: en un
+  celular en vertical la vista previa recorta el vídeo apaisado, así que la foto
+  y lo que se ve en pantalla no tienen la misma forma.
 - `opening` y `width` van en distancias entre ojos: no cambian al acercarse.
 - `rounding` va de 0 a 1 y sale de las blendshapes de MediaPipe.
 - Si no se ve ninguna cara, `face` llega en `null`. **No es un error.**

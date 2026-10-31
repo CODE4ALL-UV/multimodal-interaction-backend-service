@@ -166,7 +166,11 @@ def _rounding_of(result) -> float:
 
 
 def _detect(landmarker, payload: bytes):
-    """Busca la boca en una foto. Devuelve los puntos y sus medidas, o None."""
+    """Busca la boca en una foto.
+
+    Devuelve los puntos, sus medidas y el tamaño de la foto, o None si no hay
+    ninguna cara.
+    """
     frame = cv2.imdecode(np.frombuffer(payload, dtype=np.uint8), cv2.IMREAD_COLOR)
     if frame is None:
         raise ValueError("No se pudo leer la imagen")
@@ -185,7 +189,7 @@ def _detect(landmarker, payload: bytes):
     landmarks = result.face_landmarks[0]
     height, width = frame.shape[:2]
     mouth = measure_mouth(landmarks, width, height, _rounding_of(result))
-    return None if mouth is None else (landmarks, mouth)
+    return None if mouth is None else (landmarks, mouth, (width, height))
 
 
 def _contour(landmarks, indices):
@@ -199,10 +203,15 @@ def _analyze_frame(landmarker, payload: bytes, neutral_width: float):
     if detected is None:
         return {"face": None}
 
-    landmarks, mouth = detected
+    landmarks, mouth, (width, height) = detected
     scores = shape_scores(mouth, neutral_width)
     return {
         "face": {
+            # Los puntos van de 0 a 1 respecto a esta foto. La app necesita su
+            # tamaño para dibujarlos: lo que enseña la cámara no siempre tiene
+            # la misma forma. En un celular en vertical, el vídeo apaisado se
+            # recorta para llenar la pantalla.
+            "image": {"width": width, "height": height},
             "lips": {
                 "outer": _contour(landmarks, LIPS_OUTER),
                 "inner": _contour(landmarks, LIPS_INNER),

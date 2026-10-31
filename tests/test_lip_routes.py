@@ -164,6 +164,9 @@ def test_a_frame_returns_the_lip_contours_and_the_mouth_shape(detector):
 
     assert response.status_code == 200
     face = response.json()["face"]
+    # El tamaño de la foto de verdad: sin él la app no puede dibujar bien los
+    # labios si la vista previa recorta la imagen.
+    assert face["image"] == {"width": 8, "height": 8}
     assert len(face["lips"]["outer"]) == 20
     assert len(face["lips"]["inner"]) == 20
     assert face["lips"]["outer"][0] == {"x": _face(0.26)[LIPS_OUTER[0]].x, "y": 0.6}
